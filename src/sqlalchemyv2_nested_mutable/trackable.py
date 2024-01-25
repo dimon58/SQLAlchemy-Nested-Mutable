@@ -1,23 +1,23 @@
 from __future__ import annotations
 
 from typing import Any
-from typing import cast
 from typing import Dict
 from typing import Iterable
 from typing import List
 from typing import Optional
-from typing import overload
-from typing import Tuple
 from typing import TYPE_CHECKING
+from typing import Tuple
 from typing import Union
+from typing import cast
+from typing import overload
 from weakref import WeakValueDictionary
 
+import pydantic
 from sqlalchemy.ext.mutable import Mutable
 from sqlalchemy.util.typing import SupportsIndex
 from sqlalchemy.util.typing import TypeGuard
 from typing_extensions import Self
 
-from ._compat import pydantic
 from ._typing import _KT
 from ._typing import _T
 from ._typing import _VT
@@ -195,26 +195,18 @@ class TrackedDict(TrackedObject, Dict[_KT, _VT]):
         self.update(state)
 
 
-if pydantic is not None:
+class TrackedPydanticBaseModel(TrackedObject, Mutable, pydantic.BaseModel):
+    @classmethod
+    def coerce(cls, key, value):
+        return value if isinstance(value, cls) else cls.model_validate(value)
 
-    class TrackedPydanticBaseModel(TrackedObject, Mutable, pydantic.BaseModel):
-        @classmethod
-        def coerce(cls, key, value):
-            return value if isinstance(value, cls) else cls.model_validate(value)
+    def __init__(self, **data):
+        super().__init__(**data)
+        for field in self.model_fields.keys():
+            setattr(self, field, TrackedObject.make_nested_trackable(getattr(self, field), self))
 
-        def __init__(self, **data):
-            super().__init__(**data)
-            for field in self.model_fields.keys():
-                setattr(self, field, TrackedObject.make_nested_trackable(getattr(self, field), self))
-
-        def __setattr__(self, name, value):
-            prev_value = getattr(self, name, None)
-            super().__setattr__(name, value)
-            if prev_value != getattr(self, name):
-                self.changed()
-
-elif not TYPE_CHECKING:
-
-    class TrackedPydanticBaseModel:
-        def __new__(cls, *a, **k):
-            raise RuntimeError("pydantic is not installed!")
+    def __setattr__(self, name, value):
+        prev_value = getattr(self, name, None)
+        super().__setattr__(name, value)
+        if prev_value != getattr(self, name):
+            self.changed()

@@ -62,7 +62,7 @@ classifiers = [
 
 [tool.poetry.dependencies]
 python = "^3.11"
-sqlalchemy = "2.0.23"
+sqlalchemy = "^2.0.23"
 psycopg2-binary = "^2.8"
 pydantic = "^2.5"
 typing-extensions = "^4.5.0"

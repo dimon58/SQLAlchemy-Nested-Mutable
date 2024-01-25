@@ -2,15 +2,15 @@ from __future__ import annotations
 
 from typing import Iterable
 from typing import List
-from typing import TYPE_CHECKING
 from typing import TypeVar
 
 import sqlalchemy as sa
+from pydantic import BaseModel
+from sqlalchemy import Dialect
 from sqlalchemy.ext.mutable import Mutable
 from sqlalchemy.sql.type_api import TypeEngine
 from typing_extensions import Self
 
-from ._compat import pydantic
 from ._typing import _T
 from .trackable import TrackedDict
 from .trackable import TrackedList
@@ -47,61 +47,53 @@ class MutableDict(TrackedDict, Mutable):
         super().__init__(TrackedObject.make_nested_trackable(dict(source, **kwds), self))
 
 
-if pydantic is not None:
+class PydanticType(sa.types.TypeDecorator, TypeEngine[_P]):
+    """
+    Inspired by https://gist.github.com/imankulov/4051b7805ad737ace7d8de3d3f934d6b
+    """
 
-    class PydanticType(sa.types.TypeDecorator, TypeEngine[_P]):
-        """
-        Inspired by https://gist.github.com/imankulov/4051b7805ad737ace7d8de3d3f934d6b
-        """
+    cache_ok = True
+    impl = sa.types.JSON
 
-        cache_ok = True
-        impl = sa.types.JSON
+    def __init__(self, pydantic_type: type[_P], sqltype: TypeEngine[_T] | None = None):
+        super().__init__()
+        if not issubclass(pydantic_type, BaseModel):
+            raise ValueError(f"pydantic_type should be subclass of BaseModel not {type(pydantic_type)}")
 
-        def __init__(self, pydantic_type: type[_P], sqltype: TypeEngine[_T] | None = None):
-            super().__init__()
-            self.pydantic_type = pydantic_type
-            self.sqltype = sqltype
+        self.pydantic_type = pydantic_type
+        self.sqltype = sqltype
 
-        def load_dialect_impl(self, dialect):
-            from sqlalchemy.dialects.postgresql import JSONB
+    def load_dialect_impl(self, dialect):
+        from sqlalchemy.dialects.postgresql import JSONB
 
-            if self.sqltype is not None:
-                return dialect.type_descriptor(self.sqltype)
+        if self.sqltype is not None:
+            return dialect.type_descriptor(self.sqltype)
 
-            if dialect.name == "postgresql":
-                return dialect.type_descriptor(JSONB())
-            return dialect.type_descriptor(sa.JSON())
+        if dialect.name == "postgresql":
+            return dialect.type_descriptor(JSONB())
+        return dialect.type_descriptor(sa.JSON())
 
-        def __repr__(self):
-            # NOTE: the `__repr__` is used by Alembic to generate the migration script.
-            return f'PydanticType({self.pydantic_type.__name__})'
+    def __repr__(self):
+        # NOTE: the `__repr__` is used by Alembic to generate the migration script.
+        return f"{self.__class__.__name__}({self.pydantic_type.__name__})"
 
-        def process_bind_param(self, value, dialect):
-            return value.dict() if value else None
+    def process_bind_param(self, value: _P | None, dialect: Dialect):
+        return value.model_dump(mode="json") if value else None
 
-        def process_result_value(self, value, dialect) -> _P | None:
-            return None if value is None else self.pydantic_type.model_validate(value)
+    def process_result_value(self, value, dialect: Dialect) -> _P | None:
+        return self.pydantic_type.model_validate(value) if value else None
 
-    class MutablePydanticBaseModel(TrackedPydanticBaseModel, Mutable):
-        @classmethod
-        def coerce(cls, key, value) -> Self:
-            return value if isinstance(value, cls) else cls.model_validate(value)
 
-        def dict(self, *args, **kwargs):
-            res = super().model_dump(*args, **kwargs)
-            res.pop('_parents', None)
-            return res
+class MutablePydanticBaseModel(TrackedPydanticBaseModel, Mutable):
+    @classmethod
+    def coerce(cls, key, value) -> Self:
+        return value if isinstance(value, cls) else cls.model_validate(value)
 
-        @classmethod
-        def as_mutable(cls, sqltype: TypeEngine[_T] | None = None) -> TypeEngine[Self]:
-            return super().as_mutable(PydanticType(cls, sqltype))
+    def dict(self, *args, **kwargs):
+        res = super().model_dump(*args, **kwargs)
+        res.pop('_parents', None)
+        return res
 
-elif not TYPE_CHECKING:
-
-    class PydanticType:
-        def __new__(cls, *a, **k):
-            raise RuntimeError("PydanticType requires pydantic to be installed")
-
-    class MutablePydanticBaseModel:
-        def __new__(cls, *a, **k):
-            raise RuntimeError("MutablePydanticBaseModel requires pydantic to be installed")
+    @classmethod
+    def as_mutable(cls, sqltype: TypeEngine[_T] | None = None) -> TypeEngine[Self]:
+        return super().as_mutable(PydanticType(cls, sqltype))
