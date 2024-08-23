@@ -17,10 +17,6 @@ pytest-github-report = "^0.0.1"
 pytest-cov = "^4.1.0"
 python-semantic-release = "^8.5.2"
 
-[[tool.poetry.source]]
-name = "DSAI"
-url = "https://pkgs.dev.azure.com/BMA-DSAI/_packaging/DSAI/pypi/simple/"
-priority = "primary"
 
 [[tool.poetry.source]]
 name = "PyPI"
@@ -61,14 +57,9 @@ classifiers = [
 ]
 
 [tool.poetry.dependencies]
-python = "^3.8"
+python = "^3.12"
 sqlalchemy = "^2.0.23"
-psycopg2-binary = "^2.8"
 pydantic = "^2.5"
-typing-extensions = "^4.5.0"
-greenlet = "*"
-python-dotenv = "^1.0.0"
-glom = "^23.5.0"
 
 [build-system]
 requires = ["poetry-core>=1.0.0"]
